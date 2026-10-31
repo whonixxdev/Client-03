@@ -1,0 +1,172 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  SISWA
+  PANITIA
+  ADMIN
+}
+
+enum OtpPurpose {
+  REGISTER
+  LOGIN
+  RESET
+}
+
+enum MetodePembayaran {
+  OFFLINE
+  ONLINE
+}
+
+enum StatusVerifikasi {
+  PENDING
+  REVISI
+  VALID
+  LUNAS
+}
+
+model User {
+  id           String      @id @default(uuid())
+  panitiaId    String?     @unique
+  email        String      @unique
+  username     String?     @unique
+  password     String
+  role         Role        @default(SISWA)
+  isVerified   Boolean     @default(false)
+  otpCode      String?
+  otpExpiredAt DateTime?
+  otpPurpose   OtpPurpose?
+  otpAttempts  Int         @default(0)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  biodata      BiodataSiswa?
+  berkas       BerkasSiswa?
+  pembayaran   Pembayaran?
+  komentars    KomentarPanitia[]
+  articles     Article[]
+
+  @@map("users")
+}
+
+model Jurusan {
+  id               String         @id @default(uuid())
+  namaJurusan      String         @unique 
+  kuota            Int            @default(100)
+  gelombang        String?
+  biayaPendaftaran Float          @default(0)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  biodatas         BiodataSiswa[]
+
+  @@map("jurusans")
+}
+
+model BiodataSiswa {
+  id              String           @id @default(uuid())
+  userId          String           @unique
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  namaLengkap     String
+  nik             String?          @unique
+  nisn            String?          @unique
+  jenisKelamin    String?
+  tempatLahir     String?
+  tanggalLahir    DateTime?
+  agama           String?
+  alamat          String?
+  noHpSiswa       String?
+  noHpOrtu        String?
+  asalSmp         String?
+  
+  jurusanId       String?
+  jurusan         Jurusan?         @relation(fields: [jurusanId], references: [id])
+  
+  statusFormulir  StatusVerifikasi @default(PENDING)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@map("biodata_siswa")
+}
+
+model BerkasSiswa {
+  id                String           @id @default(uuid())
+  userId            String           @unique
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  filePasfoto       String?
+  fileIjazahSkl     String?
+  fileKk            String?
+  fileAkteKelahiran String?
+  
+  statusVerifikasi  StatusVerifikasi @default(PENDING)
+  catatanAdmin      String?          
+  
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@map("berkas_siswa")
+}
+
+model Pembayaran {
+  id              String           @id @default(uuid())
+  userId          String           @unique
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  metode          MetodePembayaran @default(OFFLINE)
+  jumlah          Float            @default(0)
+  buktiUrl        String?          
+  status          StatusVerifikasi @default(PENDING)
+  
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@map("pembayaran")
+}
+
+model KomentarPanitia {
+  id        String   @id @default(uuid())
+  userId    String   
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  panitiaId String   
+  pesan     String
+  kategori  String   
+  
+  createdAt DateTime @default(now())
+
+  @@map("komentar_panitia")
+}
+
+model ArticleCategory {
+  id        String    @id @default(uuid())
+  name      String    @unique
+  slug      String    @unique
+  createdAt DateTime  @default(now())
+  articles  Article[]
+
+  @@map("article_categories")
+}
+
+model Article {
+  id         String          @id @default(uuid())
+  title      String
+  slug       String          @unique
+  content    String          @db.Text
+  thumbnail  String?
+  published  Boolean         @default(false)
+  authorId   String
+  author     User            @relation(fields: [authorId], references: [id])
+  categoryId String
+  category   ArticleCategory @relation(fields: [categoryId], references: [id])
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@map("articles")
+}
