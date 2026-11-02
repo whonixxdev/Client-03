@@ -3,19 +3,20 @@
 Backend pendaftaran siswa baru SMK TI Bali Global Badung.
 Folder proyek: `D:\backup_website\client_backend_all\backend_spmbv11`
 
-Terakhir diperbarui: 31 Oktober 2026
+Terakhir diperbarui: 2 November 2026
 
 ---
 
 ## 1. Status Singkat
 
 | Modul | Status |
-|-------|--------|
+|---|---|
 | Koneksi database (Supabase Session pooler) | Selesai, server pernah berhasil start |
 | Auth (register, OTP, login, reset password) | Selesai ditulis, **belum dites ulang setelah penguatan keamanan** |
-| Biodata siswa | Belum dikerjakan (model sudah ada di skema) |
-| Admin dan panitia | Belum dikerjakan |
-| Berkas, pembayaran, jurusan, artikel, komentar | Belum dikerjakan (model sudah ada di skema) |
+| Pendaftaran siswa (biodata, unggah berkas, ajukan, pembayaran) | Selesai ditulis, **belum dites** |
+| Panitia/admin (verifikasi, konfirmasi pembayaran, registrasi ulang, ekspor Excel) | Selesai ditulis, **belum dites** |
+| Jurusan, gelombang, pengaturan (daftar untuk siswa, CRUD admin), avatar, jurusan cadangan, penempatan kuota | Selesai ditulis (tahap 1), **belum dites** |
+| Notifikasi, aturan ekspor Excel, statistik dan kelola akun panitia, artikel | Belum dikerjakan |
 
 Catatan penting: kode Auth versi terbaru (hasil penguatan keamanan) ditulis tanpa dijalankan.
 Log start terakhir yang berhasil adalah versi sebelum penguatan keamanan.
@@ -235,9 +236,11 @@ Tes Postman:
 
 ### 9.1 Rencana berikutnya (dicek dan dilanjutkan besok)
 
-- Modul **biodata siswa** (model `BiodataSiswa`, relasi `Jurusan`)
-- Modul **admin dan panitia** (verifikasi berkas, status formulir, komentar panitia)
-- Setelah itu: berkas (upload ke Supabase Storage), pembayaran, jurusan, artikel
+- Uji modul pendaftaran (checklist bagian 11.6)
+- Tahap 2: notifikasi (komentar manual, notifikasi siswa, pilih massal, single dan broadcast)
+- Tahap 3: aturan ekspor (hanya siklus selesai) dan kolom Excel baru dengan avatar
+- Tahap 4: statistik, kelola akun panitia
+- Setelah itu: artikel, `GET /auth/me`, hal-hal di bagian 9.2
 
 ### 9.2 Kekurangan di Auth
 
@@ -269,3 +272,197 @@ Beberapa nilai rahasia pernah tampil di percakapan, jadi harus diganti sebelum d
 - Solusi harus tanpa kesalahan dan tanpa typo.
 - Pengembang juga berperan sebagai klien: beri kritik desain dan saran inovasi (kekurangan, kritik, saran, penyelesaian) dengan bahasa tidak berlebihan.
 - Jangan menempelkan nilai `.env` asli ke percakapan; sensor nilainya.
+
+---
+
+## 11. Modul Pendaftaran (1 November 2026)
+
+### 11.1 File
+
+Baru:
+
+| File | Isi |
+|---|---|
+| `src/storage/storage.module.ts`, `storage.service.ts` | Unggah, hapus, dan tautan sementara (5 menit) ke bucket privat Supabase lewat S3 |
+| `src/pendaftaran/panitia.controller.ts`, `panitia.service.ts` | Daftar, detail, verifikasi, konfirmasi pembayaran, registrasi ulang, ekspor Excel |
+| `src/pendaftaran/dto/verifikasi.dto.ts`, `konfirmasi-pembayaran.dto.ts`, `daftar-ulang.dto.ts`, `query-panitia.dto.ts` | Validasi input panitia dan filter |
+| `src/pendaftaran/utils/berkas.config.ts` | Daftar jenis berkas, batas ukuran, format, wajib atau opsional |
+| `src/pendaftaran/utils/file.util.ts` | Cek isi file (jpg, png, pdf), slug nama folder, validasi unggahan |
+| `src/pendaftaran/utils/kelengkapan.util.ts` | Daftar data dan berkas yang masih kurang |
+
+Ditulis ulang:
+
+| File | Perubahan |
+|---|---|
+| `src/pendaftaran/pendaftaran.controller.ts` | Hanya role SISWA, memakai `@GetUser('id')` (sebelumnya `req.user.userId` yang tidak ada), unggah file nyata |
+| `src/pendaftaran/pendaftaran.service.ts` | Aturan kunci edit, ajukan, jumlah bayar dari server, tanpa penyalinan body mentah |
+| `src/pendaftaran/pendaftaran.module.ts` | Tambah `StorageModule` dan `PanitiaController`, `PanitiaService` |
+| `src/pendaftaran/dto/biodata.dto.ts` | Format NIK 16 digit, NISN 10 digit, nomor HP, pilihan agama dan jenis kelamin |
+| `src/pendaftaran/dto/pembayaran.dto.ts` | Hanya `metode`. Jumlah dan bukti tidak lagi dikirim klien |
+| `prisma/schema.prisma` | Tambah `BiodataSiswa.diajukanPada` dan `BerkasSiswa.folderPath` |
+
+### 11.2 Endpoint
+
+Siswa (Bearer token, role SISWA):
+
+| Method | Path | Fungsi |
+|---|---|---|
+| GET | `/pendaftaran/me` | Status lengkap, kekurangan, akses tiap tahap, catatan panitia, tautan berkas |
+| POST | `/pendaftaran/biodata` | Simpan biodata (draft), ditolak jika sedang diverifikasi atau sudah valid |
+| POST | `/pendaftaran/berkas/:jenis` | Unggah satu berkas (multipart, field `file`). Jenis: `pasfoto`, `kk`, `akta`, `skl`, `kia`, `kip` |
+| POST | `/pendaftaran/ajukan` | Kirim formulir dan berkas ke panitia (wajib lengkap) |
+| POST | `/pendaftaran/pembayaran` | Pilih `metode` OFFLINE atau ONLINE (multipart, ONLINE wajib field `bukti`) |
+
+Panitia dan admin (Bearer token):
+
+| Method | Path | Fungsi |
+|---|---|---|
+| GET | `/pendaftaran/panitia/all` | Daftar siswa, halaman dan filter (`page`, `limit`, `search`, `jurusanId`, `statusFormulir`, `statusBerkas`, `statusPembayaran`, `statusDaftarUlang`, `diajukan`) |
+| GET | `/pendaftaran/panitia/export` | Unduh Excel (filter sama, maksimal 5 permintaan per menit) |
+| GET | `/pendaftaran/panitia/:userId` | Detail siswa, tautan berkas, riwayat catatan |
+| PATCH | `/pendaftaran/panitia/:userId/verifikasi` | `statusFormulir` dan/atau `statusBerkas` (REVISI atau VALID), `catatanFormulir`, `catatanAdmin` |
+| PATCH | `/pendaftaran/panitia/:userId/pembayaran` | `status` LUNAS atau REVISI, `catatan` |
+| PATCH | `/pendaftaran/panitia/:userId/daftar-ulang` | `statusDaftarUlang`, `catatanDaftarUlang` |
+
+### 11.3 Aturan alur
+
+- Siswa bisa mengedit biodata dan berkas selama belum diajukan, atau saat statusnya REVISI. Setelah diajukan atau VALID, terkunci.
+- `ajukan` hanya berhasil jika semua data wajib dan berkas wajib (pas foto, KK, akta, SKL, KIA/KTP anak) lengkap. KIP opsional.
+- Panitia hanya bisa memverifikasi siswa yang sudah mengajukan. VALID ditolak jika data belum lengkap. REVISI wajib disertai catatan.
+- Pembayaran terbuka jika formulir dan berkas sama-sama VALID. Jumlah bayar diambil dari `Jurusan.biayaPendaftaran`.
+- OFFLINE tidak memerlukan bukti, ONLINE wajib unggah bukti. Pembayaran LUNAS tidak bisa ditimpa siswa.
+- Panitia mengonfirmasi LUNAS. Panitia biasa tidak bisa mengubah pembayaran yang sudah LUNAS (hanya admin). Konfirmasi LUNAS dicek terhadap kuota jurusan.
+- Registrasi ulang hanya bisa diproses jika pembayaran LUNAS. Status ADA_KEKURANGAN wajib disertai catatan.
+- Setiap keputusan panitia dicatat di `KomentarPanitia` (kolom `panitiaId` berisi id akun pencatat) dan tampil sebagai riwayat untuk siswa.
+
+### 11.4 Penyimpanan berkas
+
+- Bucket privat `spmb-berkas` (AWS_BUCKET). Bucket harus dibuat dan diatur **privat** di Supabase.
+- Struktur: `siswa/{slug-nama}-{8 karakter id}/{jenis}.{ext}`, contoh `siswa/anggun-putri-1a2b3c4d/kk.pdf`. Bukti bayar: `bukti-pembayaran.{ext}`.
+- Folder ditetapkan sekali (`BerkasSiswa.folderPath`), tidak berubah walau nama diedit.
+- Hanya jpg, png, pdf. Isi file dicek (bukan hanya ekstensi). Pas foto maksimal 2 MB, dokumen 5 MB, bukti bayar 2 MB.
+- Basis data menyimpan path file, bukan tautan. Tautan unduhan dibuat saat diminta dan berlaku 5 menit.
+- Kolom `Pembayaran.buktiUrl` sekarang berisi path file di bucket (nama kolom tidak diubah).
+
+### 11.5 Paket dan migrasi
+
+```bash
+npm install @aws-sdk/client-s3 @aws-sdk/s3-request-presigner exceljs
+npm install -D @types/multer
+npx prisma migrate dev --name pendaftaran_alur
+npx prisma generate
+```
+
+### 11.6 Checklist tes (belum dijalankan)
+
+- [ ] Server start tanpa error
+- [ ] Siswa: simpan biodata, unggah semua berkas wajib, `GET /pendaftaran/me` menampilkan tautan dan akses yang benar
+- [ ] `ajukan` sebelum lengkap ditolak dengan daftar kekurangan
+- [ ] Setelah diajukan, biodata dan berkas tidak bisa diubah
+- [ ] Panitia memberi REVISI tanpa catatan ditolak, dengan catatan berhasil, siswa bisa mengedit lagi dan `ajukan` ulang
+- [ ] Pembayaran terkunci sebelum formulir dan berkas VALID
+- [ ] Pembayaran ONLINE tanpa bukti ditolak, jumlah mengikuti biaya jurusan walau klien mengirim jumlah lain (field tambahan ditolak 400)
+- [ ] Panitia konfirmasi LUNAS, siswa tidak bisa mengirim ulang pembayaran
+- [ ] Registrasi ulang sebelum LUNAS ditolak, ADA_KEKURANGAN tanpa catatan ditolak
+- [ ] Ekspor Excel terbuka di Excel dengan NIK dan nomor HP tetap utuh
+- [ ] Akun PANITIA memanggil endpoint siswa mendapat 403, akun SISWA memanggil endpoint panitia mendapat 403
+- [ ] `/pendaftaran/panitia/all` tidak menampilkan password atau OTP
+
+### 11.7 Catatan dan kekurangan
+
+- Endpoint daftar jurusan sudah ada sejak tahap 1 (bagian 12).
+- Format respons `GET /pendaftaran/me` berubah menjadi `{ status, data: {...} }`.
+- Field di luar DTO ditolak 400.
+- Kuota jurusan sekarang dikunci di basis data saat penempatan (bagian 12.3).
+- Riwayat ekspor hanya tercatat di log server, belum di basis data.
+
+---
+
+## 12. Tahap 1: Avatar, Jurusan Cadangan, Gelombang, Pengaturan (2 November 2026)
+
+### 12.1 Yang diperbaiki dari file kiriman
+
+Di `pendaftaran.service.ts` dan `panitia.service.ts`, `diajukanPada` diganti `userId` di tiga tempat (kemungkinan karena kolom `diajukanPada` belum ada di skema). Akibatnya `bisaMengajukan` tidak pernah benar untuk pengajuan pertama, panitia bisa memverifikasi siswa yang belum mengajukan, dan filter `diajukan` selalu lolos. Semuanya dikembalikan, dan kolomnya sekarang ada di skema.
+
+### 12.2 File
+
+Baru:
+
+| File | Isi |
+|---|---|
+| `src/konfigurasi/` (module, service, controller, jurusan.controller, dto/jurusan, gelombang, pengaturan) | Daftar jurusan untuk semua pengguna, CRUD jurusan dan gelombang untuk admin, pengaturan rekening dan instruksi |
+| `src/pendaftaran/utils/avatar.util.ts` | Memperkecil foto (512 x 512, JPEG), memutar sesuai EXIF, menghapus metadata |
+
+Diperbarui:
+
+| File | Perubahan |
+|---|---|
+| `prisma/schema.prisma` | `Jurusan` (tanpa kolom gelombang, tambah `aktif`, tiga relasi), model `GelombangPendaftaran` dan `Pengaturan`, `BiodataSiswa` (`avatarUrl`, `nis`, `jurusanCadanganId`, `jurusanDiterimaId`, `gelombangId`, `diajukanPada`), `BerkasSiswa` (hapus `filePasfoto`, tambah `folderPath`) |
+| `src/storage/storage.service.ts` | Dua bucket: `berkas` dan `avatar` (`AWS_BUCKET_AVATAR`, bila kosong memakai bucket berkas) |
+| `src/pendaftaran/pendaftaran.service.ts`, `pendaftaran.controller.ts`, `pendaftaran.module.ts` | Avatar, jurusan cadangan, NIS, gelombang saat mengajukan, biaya dari jurusan yang diterima, info rekening dan instruksi |
+| `src/pendaftaran/panitia.service.ts` | Penempatan jurusan saat VALID, avatar dan kolom baru di daftar dan detail, filter jurusan dan gelombang |
+| `src/pendaftaran/dto/biodata.dto.ts`, `query-panitia.dto.ts` | `nis`, `jurusanCadanganId`, `gelombangId` |
+| `src/pendaftaran/utils/berkas.config.ts`, `kelengkapan.util.ts` | Pas foto keluar dari berkas (menjadi avatar), foto profil dan jurusan cadangan wajib untuk mengajukan |
+| `src/app.module.ts` | Menambah `KonfigurasiModule` |
+
+### 12.3 Aturan baru
+
+- Foto profil (avatar) diunggah lewat `POST /pendaftaran/avatar`, wajib untuk mengajukan, dikunci setelah diajukan atau VALID. Disimpan di `avatar/{userId}.jpg`.
+- Siswa memilih jurusan utama dan jurusan cadangan (tidak boleh sama, harus aktif). NIS opsional.
+- Saat mengajukan, siswa otomatis masuk gelombang yang sedang berjalan. Jika belum ada gelombang sama sekali, tidak ada pembatasan. Jika ada gelombang tetapi tidak ada yang aktif pada tanggal itu, pengajuan ditolak ("Pendaftaran belum dibuka atau sudah ditutup").
+- Penempatan jurusan terjadi saat formulir dan berkas sama-sama VALID: jurusan utama jika masih ada kuota, jika penuh pindah ke jurusan cadangan, jika keduanya penuh verifikasi ditolak dan panitia diminta memberi REVISI. Kuota dikunci di basis data (`SELECT ... FOR UPDATE`) agar tidak tembus. Kursi dilepas jika status kembali REVISI.
+- Biaya pembayaran memakai jurusan yang diterima. Pembayaran terkunci jika penempatan belum ada.
+- Setelah pembayaran terbuka, `GET /pendaftaran/me` menyertakan info rekening dan instruksi offline. Setelah LUNAS, menyertakan instruksi registrasi ulang. Isinya diatur admin.
+- `GET /pendaftaran/panitia/all` kini mengirim avatar, jurusan utama, cadangan, diterima, dan gelombang.
+
+### 12.4 Endpoint baru
+
+| Method | Path | Akses |
+|---|---|---|
+| POST | `/pendaftaran/avatar` | Siswa, multipart field `file` (jpg atau png, maks 3 MB) |
+| GET | `/jurusan` | Semua pengguna yang login (hanya jurusan aktif, dengan sisa kuota) |
+| GET | `/konfigurasi/jurusan` | Admin dan panitia (semua jurusan) |
+| POST, PATCH `:id`, DELETE `:id` | `/konfigurasi/jurusan` | Admin |
+| GET | `/konfigurasi/gelombang` | Admin dan panitia |
+| POST, PATCH `:id`, DELETE `:id` | `/konfigurasi/gelombang` | Admin |
+| GET | `/konfigurasi/pengaturan` | Admin dan panitia |
+| PUT | `/konfigurasi/pengaturan` | Admin (`bankNama`, `bankNomorRekening`, `bankAtasNama`, `instruksiPembayaranOffline`, `instruksiRegistrasiUlang`) |
+
+### 12.5 Paket dan migrasi
+
+```bash
+npm install sharp
+npx prisma migrate dev --name tahap1_jurusan_gelombang_avatar
+npx prisma generate
+```
+
+Prisma akan memperingatkan penghapusan kolom `jurusans.gelombang` dan `berkas_siswa.filePasfoto`. Jika belum ada data penting, jawab ya.
+
+Tambahkan di `.env` (opsional, bila ingin bucket avatar terpisah, buat bucket privat dengan nama itu di Supabase):
+
+```
+AWS_BUCKET_AVATAR=spmb-avatars
+```
+
+### 12.6 Isi data awal lewat API (login sebagai admin)
+
+1. `POST /konfigurasi/jurusan` untuk tiap jurusan: `{ "namaJurusan": "...", "kuota": 36, "biayaPendaftaran": 250000 }`
+2. `POST /konfigurasi/gelombang`: `{ "nama": "Gelombang 1", "tanggalMulai": "2026-11-01", "tanggalSelesai": "2026-12-15" }` (tanggal tanpa jam dibaca zona WITA)
+3. `PUT /konfigurasi/pengaturan`: rekening Bank BPD dan teks instruksi
+
+### 12.7 Checklist tes tahap 1 (belum dijalankan)
+
+- [ ] Server start tanpa error setelah migrasi
+- [ ] `GET /jurusan` menampilkan jurusan aktif dengan `sisaKuota`
+- [ ] Siswa menyimpan biodata dengan jurusan utama dan cadangan. Dua jurusan sama ditolak
+- [ ] Unggah avatar JPG dan PNG berhasil, file palsu (ekstensi diganti) ditolak, hasil di bucket berukuran kecil
+- [ ] `ajukan` tanpa foto profil atau jurusan cadangan ditolak dengan daftar kekurangan
+- [ ] `ajukan` masuk gelombang yang benar, di luar tanggal gelombang ditolak
+- [ ] Panitia memberi VALID pada formulir dan berkas: siswa mendapat `jurusanDiterimaId`
+- [ ] Kuota jurusan utama diset 1: siswa kedua otomatis ke jurusan cadangan, riwayat mencatatnya
+- [ ] Kuota utama dan cadangan penuh: verifikasi VALID ditolak 409
+- [ ] REVISI melepas kursi, jumlah `terisi` berkurang
+- [ ] Pembayaran memakai biaya jurusan yang diterima, `infoPembayaran` tampil di `GET me`
+- [ ] Setelah LUNAS, `instruksiRegistrasiUlang` tampil
+- [ ] Panitia tidak bisa memanggil `/konfigurasi` untuk menulis (403), admin bisa
+- [ ] Daftar panitia menampilkan avatar, jurusan cadangan, dan gelombang

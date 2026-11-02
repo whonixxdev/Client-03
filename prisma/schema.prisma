@@ -30,6 +30,13 @@ enum StatusVerifikasi {
   LUNAS
 }
 
+enum StatusRegistrasiUlang {
+  BELUM_HADIR
+  HADIR_VERIFIKASI
+  SUDAH_LENGKAP
+  ADA_KEKURANGAN
+}
+
 model User {
   id           String      @id @default(uuid())
   panitiaId    String?     @unique
@@ -56,42 +63,87 @@ model User {
 
 model Jurusan {
   id               String         @id @default(uuid())
-  namaJurusan      String         @unique 
+  namaJurusan      String         @unique
   kuota            Int            @default(100)
-  gelombang        String?
   biayaPendaftaran Float          @default(0)
+  aktif            Boolean        @default(true)
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
-  biodatas         BiodataSiswa[]
+  biodatasUtama    BiodataSiswa[] @relation("JurusanUtama")
+  biodatasCadangan BiodataSiswa[] @relation("JurusanCadangan")
+  biodatasDiterima BiodataSiswa[] @relation("JurusanDiterima")
 
   @@map("jurusans")
 }
 
-model BiodataSiswa {
-  id              String           @id @default(uuid())
-  userId          String           @unique
-  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  namaLengkap     String
-  nik             String?          @unique
-  nisn            String?          @unique
-  jenisKelamin    String?
-  tempatLahir     String?
-  tanggalLahir    DateTime?
-  agama           String?
-  alamat          String?
-  noHpSiswa       String?
-  noHpOrtu        String?
-  asalSmp         String?
-  
-  jurusanId       String?
-  jurusan         Jurusan?         @relation(fields: [jurusanId], references: [id])
-  
-  statusFormulir  StatusVerifikasi @default(PENDING)
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+model GelombangPendaftaran {
+  id             String         @id @default(uuid())
+  nama           String         @unique
+  tanggalMulai   DateTime
+  tanggalSelesai DateTime
+  aktif          Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
+  biodatas       BiodataSiswa[]
+
+  @@map("gelombang_pendaftaran")
+}
+
+model Pengaturan {
+  kunci     String   @id
+  nilai     String   @db.Text
+  updatedAt DateTime @updatedAt
+
+  @@map("pengaturan")
+}
+
+model BiodataSiswa {
+  id                 String                @id @default(uuid())
+  userId             String                @unique
+  user               User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  namaLengkap        String
+  avatarUrl          String?
+  nik                String?               @unique
+  nisn               String?               @unique
+  nis                String?
+  jenisKelamin       String?
+  tempatLahir        String?
+  tanggalLahir       DateTime?
+  agama              String?
+  alamat             String?
+  noHpSiswa          String?
+
+  namaAyah           String?
+  noHpAyah           String?
+  namaIbu            String?
+  noHpIbu            String?
+
+  asalSmp            String?
+
+  jurusanId          String?
+  jurusan            Jurusan?              @relation("JurusanUtama", fields: [jurusanId], references: [id])
+  jurusanCadanganId  String?
+  jurusanCadangan    Jurusan?              @relation("JurusanCadangan", fields: [jurusanCadanganId], references: [id])
+  jurusanDiterimaId  String?
+  jurusanDiterima    Jurusan?              @relation("JurusanDiterima", fields: [jurusanDiterimaId], references: [id])
+
+  gelombangId        String?
+  gelombang          GelombangPendaftaran? @relation(fields: [gelombangId], references: [id])
+
+  statusFormulir     StatusVerifikasi      @default(PENDING)
+  diajukanPada       DateTime?
+
+  statusDaftarUlang  StatusRegistrasiUlang @default(BELUM_HADIR)
+  catatanDaftarUlang String?
+
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  @@index([jurusanDiterimaId])
+  @@index([gelombangId])
   @@map("biodata_siswa")
 }
 
@@ -99,15 +151,17 @@ model BerkasSiswa {
   id                String           @id @default(uuid())
   userId            String           @unique
   user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  filePasfoto       String?
+
   fileIjazahSkl     String?
   fileKk            String?
   fileAkteKelahiran String?
-  
+  fileIdentitasAnak String?
+  fileKip           String?
+  folderPath        String?
+
   statusVerifikasi  StatusVerifikasi @default(PENDING)
-  catatanAdmin      String?          
-  
+  catatanAdmin      String?
+
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
 
