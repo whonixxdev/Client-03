@@ -18,6 +18,7 @@ import { PengaturanDto } from './dto/pengaturan.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { Audit } from '../audit/audit.decorator';
 
 @Controller('konfigurasi')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -32,16 +33,19 @@ export class KonfigurasiController {
   }
 
   @Post('jurusan')
+  @Audit('JURUSAN_BUAT')
   buatJurusan(@Body() dto: CreateJurusanDto) {
     return this.konfigurasiService.buatJurusan(dto);
   }
 
   @Patch('jurusan/:id')
+  @Audit('JURUSAN_UBAH')
   ubahJurusan(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateJurusanDto) {
     return this.konfigurasiService.ubahJurusan(id, dto);
   }
 
   @Delete('jurusan/:id')
+  @Audit('JURUSAN_HAPUS')
   hapusJurusan(@Param('id', ParseUUIDPipe) id: string) {
     return this.konfigurasiService.hapusJurusan(id);
   }
@@ -53,16 +57,19 @@ export class KonfigurasiController {
   }
 
   @Post('gelombang')
+  @Audit('GELOMBANG_BUAT')
   buatGelombang(@Body() dto: CreateGelombangDto) {
     return this.konfigurasiService.buatGelombang(dto);
   }
 
   @Patch('gelombang/:id')
+  @Audit('GELOMBANG_UBAH')
   ubahGelombang(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateGelombangDto) {
     return this.konfigurasiService.ubahGelombang(id, dto);
   }
 
   @Delete('gelombang/:id')
+  @Audit('GELOMBANG_HAPUS')
   hapusGelombang(@Param('id', ParseUUIDPipe) id: string) {
     return this.konfigurasiService.hapusGelombang(id);
   }
@@ -74,6 +81,7 @@ export class KonfigurasiController {
   }
 
   @Put('pengaturan')
+  @Audit('PENGATURAN_UBAH')
   ubahPengaturan(@Body() dto: PengaturanDto) {
     return this.konfigurasiService.ubahPengaturan(dto);
   }

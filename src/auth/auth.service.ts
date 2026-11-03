@@ -37,6 +37,8 @@ const BCRYPT_ROUNDS = 12;
 const OTP_TTL_MS = 5 * 60 * 1000;
 const OTP_COOLDOWN_MS = 60 * 1000;
 const OTP_MAX_ATTEMPTS = 5;
+const LOGIN_MAKS_GAGAL = 5;
+const LOGIN_KUNCI_MS = 15 * 60 * 1000;
 const INVALID_CREDENTIALS = 'Kredensial login tidak valid.';
 const INVALID_OTP = 'Kode OTP salah atau sudah kadaluwarsa.';
 const RESERVED_USERNAMES = [
@@ -52,10 +54,7 @@ const RESERVED_USERNAMES = [
 export class AuthService implements OnModuleInit {
   private readonly logger = new Logger(AuthService.name);
   private readonly otpSecret: string;
-  private readonly dummyHash = bcrypt.hashSync(
-    'kata-sandi-pembanding-waktu',
-    BCRYPT_ROUNDS,
-  );
+  private dummyHash: string | undefined;
 
   constructor(
     private prisma: PrismaService,
@@ -96,6 +95,7 @@ export class AuthService implements OnModuleInit {
         data: {
           email,
           username: 'superadmin',
+          namaLengkap: 'Administrator',
           password: hashedPassword,
           role: Role.ADMIN,
           isVerified: true,
@@ -192,8 +192,74 @@ export class AuthService implements OnModuleInit {
   }
 
   private async checkPassword(plain: string, hash?: string): Promise<boolean> {
+    if (!this.dummyHash) {
+      this.dummyHash = await bcrypt.hash(
+        'kata-sandi-pembanding-waktu',
+        BCRYPT_ROUNDS,
+      );
+    }
     const result = await bcrypt.compare(plain, hash ?? this.dummyHash);
     return hash !== undefined && result;
+  }
+
+  private assertTidakTerkunci(user: User | null): void {
+    if (user?.terkunciSampai && user.terkunciSampai.getTime() > Date.now()) {
+      throw new HttpException(
+        'Terlalu banyak percobaan login. Silakan coba lagi beberapa menit lagi.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+  }
+
+  private async catatLoginGagal(user: User): Promise<void> {
+    const hasil = await this.prisma.user.update({
+      where: { id: user.id },
+      data: { loginGagal: { increment: 1 } },
+      select: { loginGagal: true },
+    });
+    if (hasil.loginGagal >= LOGIN_MAKS_GAGAL) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          loginGagal: 0,
+          terkunciSampai: new Date(Date.now() + LOGIN_KUNCI_MS),
+        },
+      });
+    }
+  }
+
+  private async resetLoginGagal(user: User): Promise<void> {
+    if (user.loginGagal > 0 || user.terkunciSampai) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { loginGagal: 0, terkunciSampai: null },
+      });
+    }
+  }
+
+  private async verifikasiKredensial(
+    user: User | null,
+    password: string,
+  ): Promise<User> {
+    this.assertTidakTerkunci(user);
+
+    const valid = await this.checkPassword(password, user?.password);
+    if (!user || !valid) {
+      if (user) {
+        await this.catatLoginGagal(user);
+      }
+      throw new UnauthorizedException(INVALID_CREDENTIALS);
+    }
+
+    await this.resetLoginGagal(user);
+
+    if (!user.aktif) {
+      throw new UnauthorizedException(
+        'Akun dinonaktifkan. Hubungi administrator.',
+      );
+    }
+
+    return user;
   }
 
   private async buildAuthResponse(user: User, message: string) {
@@ -333,6 +399,8 @@ export class AuthService implements OnModuleInit {
             username,
             password: hashedPassword,
             panitiaId,
+            namaLengkap: dto.namaLengkap.trim(),
+            noHp: dto.noHp.trim(),
             role: Role.PANITIA,
             isVerified: false,
             otpCode: this.hash(otp),
@@ -417,16 +485,16 @@ export class AuthService implements OnModuleInit {
       },
     });
 
-    const valid = await this.checkPassword(dto.password, user?.password);
-    if (!user || !valid || user.role !== Role.SISWA) {
+    const pengguna = await this.verifikasiKredensial(user, dto.password);
+    if (pengguna.role !== Role.SISWA) {
       throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
 
-    if (!user.isVerified) {
+    if (!pengguna.isVerified) {
       throw new UnauthorizedException('Akun belum diverifikasi dengan OTP.');
     }
 
-    return this.buildAuthResponse(user, 'Login berhasil');
+    return this.buildAuthResponse(pengguna, 'Login berhasil');
   }
 
   async loginPanitia(dto: LoginPanitiaDto) {
@@ -435,12 +503,12 @@ export class AuthService implements OnModuleInit {
         where: { panitiaId: normalizePanitiaId(dto.panitiaId) },
       });
 
-      const valid = await this.checkPassword(dto.password, user?.password);
-      if (!user || !valid || user.role !== Role.PANITIA || !user.isVerified) {
+      const pengguna = await this.verifikasiKredensial(user, dto.password);
+      if (pengguna.role !== Role.PANITIA || !pengguna.isVerified) {
         throw new UnauthorizedException(INVALID_CREDENTIALS);
       }
 
-      return this.buildAuthResponse(user, 'Login panitia via ID berhasil');
+      return this.buildAuthResponse(pengguna, 'Login panitia via ID berhasil');
     }
 
     if (dto.email) {
@@ -448,18 +516,16 @@ export class AuthService implements OnModuleInit {
         where: { email: normalizeEmail(dto.email) },
       });
 
-      const valid = await this.checkPassword(dto.password, user?.password);
+      const pengguna = await this.verifikasiKredensial(user, dto.password);
       if (
-        !user ||
-        !valid ||
-        !user.isVerified ||
-        (user.role !== Role.PANITIA && user.role !== Role.ADMIN)
+        !pengguna.isVerified ||
+        (pengguna.role !== Role.PANITIA && pengguna.role !== Role.ADMIN)
       ) {
         throw new UnauthorizedException(INVALID_CREDENTIALS);
       }
 
       if (!dto.otpCode) {
-        if (this.isOnCooldown(user)) {
+        if (this.isOnCooldown(pengguna)) {
           return {
             status: 'success',
             requiresOtp: true,
@@ -468,8 +534,8 @@ export class AuthService implements OnModuleInit {
           };
         }
 
-        const otp = await this.issueOtp(user.id, OtpPurpose.LOGIN);
-        const sent = await this.sendOtp(user.email, otp, OtpPurpose.LOGIN);
+        const otp = await this.issueOtp(pengguna.id, OtpPurpose.LOGIN);
+        const sent = await this.sendOtp(pengguna.email, otp, OtpPurpose.LOGIN);
         if (!sent) {
           throw new ServiceUnavailableException(
             'Email OTP gagal dikirim. Silakan coba lagi.',
@@ -483,18 +549,18 @@ export class AuthService implements OnModuleInit {
         };
       }
 
-      if (user.otpPurpose !== OtpPurpose.LOGIN) {
+      if (pengguna.otpPurpose !== OtpPurpose.LOGIN) {
         throw new BadRequestException(INVALID_OTP);
       }
 
-      await this.assertOtp(user, dto.otpCode);
+      await this.assertOtp(pengguna, dto.otpCode);
 
       await this.prisma.user.update({
-        where: { id: user.id },
+        where: { id: pengguna.id },
         data: this.clearedOtpData(),
       });
 
-      return this.buildAuthResponse(user, 'Login via Email & OTP berhasil');
+      return this.buildAuthResponse(pengguna, 'Login via Email & OTP berhasil');
     }
 
     throw new BadRequestException('Harap masukkan ID Panitia atau Email.');
@@ -521,7 +587,7 @@ export class AuthService implements OnModuleInit {
       throw new BadRequestException('Harap masukkan username atau email.');
     }
 
-    if (!user || !user.isVerified || this.isOnCooldown(user)) {
+    if (!user || !user.isVerified || !user.aktif || this.isOnCooldown(user)) {
       return genericResponse;
     }
 
@@ -540,7 +606,7 @@ export class AuthService implements OnModuleInit {
       where: { email: normalizeEmail(dto.email) },
     });
 
-    if (!user || user.otpPurpose !== OtpPurpose.RESET) {
+    if (!user || !user.aktif || user.otpPurpose !== OtpPurpose.RESET) {
       throw new BadRequestException(INVALID_OTP);
     }
 
@@ -549,7 +615,13 @@ export class AuthService implements OnModuleInit {
     const hashedPassword = await bcrypt.hash(dto.newPassword, BCRYPT_ROUNDS);
     await this.prisma.user.update({
       where: { id: user.id },
-      data: { password: hashedPassword, ...this.clearedOtpData() },
+      data: {
+        password: hashedPassword,
+        passwordChangedAt: new Date(),
+        loginGagal: 0,
+        terkunciSampai: null,
+        ...this.clearedOtpData(),
+      },
     });
 
     return {

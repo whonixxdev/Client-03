@@ -3,7 +3,7 @@
 Backend pendaftaran siswa baru SMK TI Bali Global Badung.
 Folder proyek: `D:\backup_website\client_backend_all\backend_spmbv11`
 
-Terakhir diperbarui: 2 November 2026
+Terakhir diperbarui: 3 November 2026
 
 ---
 
@@ -18,9 +18,9 @@ Terakhir diperbarui: 2 November 2026
 | Jurusan, gelombang, pengaturan (daftar untuk siswa, CRUD admin), avatar, jurusan cadangan, penempatan kuota | Selesai ditulis (tahap 1), **belum dites** |
 | Notifikasi, aturan ekspor Excel, statistik dan kelola akun panitia, artikel | Belum dikerjakan |
 
-Catatan penting: kode Auth versi terbaru (hasil penguatan keamanan) ditulis tanpa dijalankan.
-Log start terakhir yang berhasil adalah versi sebelum penguatan keamanan.
-Langkah verifikasi ada di bagian 8.
+Catatan penting: pada 2 November 2026 pukul 13.10 server berhasil start dengan semua modul (Auth, Konfigurasi, Pendaftaran, Storage), seluruh rute terdaftar dan kompilasi 0 error.
+Endpoint-nya sendiri **belum dites** (checklist bagian 8, 11.6, dan 12.7).
+Skema database disinkronkan dengan `npx prisma db push` (bukan `migrate dev`, karena database dibuat tanpa riwayat migrasi). Setiap skema berubah, jalankan juga `npx prisma generate`.
 
 ---
 
@@ -466,3 +466,68 @@ AWS_BUCKET_AVATAR=spmb-avatars
 - [ ] Setelah LUNAS, `instruksiRegistrasiUlang` tampil
 - [ ] Panitia tidak bisa memanggil `/konfigurasi` untuk menulis (403), admin bisa
 - [ ] Daftar panitia menampilkan avatar, jurusan cadangan, dan gelombang
+
+---
+
+## 13. Batch 2: Profil, Notifikasi, Ekspor, Berita, Admin, Vercel (3 November 2026)
+
+Status: selesai ditulis, **belum dijalankan dan belum dites**. Sintaks sudah diperiksa, pemeriksaan tipe penuh baru terjadi saat `npm run start:dev`.
+
+### 13.1 Skema (jalankan `npx prisma db push` lalu `npx prisma generate`)
+
+| Model | Tambahan |
+|---|---|
+| `User` | `namaLengkap`, `noHp`, `avatarUrl`, `aktif`, `loginGagal`, `terkunciSampai`, `passwordChangedAt` |
+| `KomentarPanitia` | `dibacaPada`, `batchId` (dipakai sebagai notifikasi siswa) |
+| `Article` | `excerpt`, `publishedAt` |
+| `AuditLog` (baru) | Catatan tindakan panitia dan admin |
+
+### 13.2 Fitur dan endpoint baru
+
+| Area | Endpoint |
+|---|---|
+| Profil (semua peran) | `GET /profil/me`, `PATCH /profil/me` (panitia, admin), `POST /profil/avatar`, `POST /profil/ganti-password` |
+| Notifikasi siswa | `GET /pendaftaran/notifikasi`, `GET /pendaftaran/notifikasi/jumlah`, `PATCH /pendaftaran/notifikasi/:id/baca`, `POST /pendaftaran/notifikasi/baca-semua` |
+| Notifikasi panitia | `POST /pendaftaran/panitia/:userId/komentar` (satu siswa), `POST /pendaftaran/panitia/notifikasi` (`userIds` atau `filter`, `pratinjau: true` untuk melihat penerima dulu, maksimal 500) |
+| Ekspor Excel | `GET /pendaftaran/panitia/export/status` (jumlah siswa layak), `GET /pendaftaran/panitia/export` (hanya siklus selesai, dengan foto kecil, `avatar=false` untuk tanpa foto) |
+| Berita publik | `GET /berita`, `GET /berita/kategori`, `GET /berita/detail/:slug` |
+| Berita kelola (admin, panitia) | `GET/POST /berita/kelola`, `GET/PATCH/DELETE /berita/kelola/:id`, `POST/DELETE /berita/kelola/:id/gambar`, `POST /berita/kelola/gambar-konten` |
+| Kategori berita | `GET /kategori-berita` (admin, panitia), `POST/PATCH/DELETE` (admin) |
+| Statistik | `GET /statistik` (admin, panitia) |
+| Admin | `GET /admin/panitia`, `PATCH /admin/panitia/:id/status`, `POST /admin/panitia/:id/buka-kunci`, `GET /admin/audit` |
+
+### 13.3 Perubahan keamanan
+
+- Akun dikunci 15 menit setelah 5 kali password salah (disimpan di database, tidak bergantung pada memori server).
+- Akun yang dinonaktifkan langsung ditolak, termasuk token yang sudah terbit.
+- Token yang terbit sebelum password diganti tidak berlaku lagi.
+- Isi berita dibersihkan dari skrip berbahaya sebelum disimpan.
+- Tindakan penting panitia dan admin tercatat di `AuditLog` (verifikasi, pembayaran, registrasi ulang, ekspor, notifikasi, konfigurasi, berita, akun panitia).
+- Batas unggah berkas diturunkan ke 4 MB agar muat di batas 4,5 MB permintaan Vercel.
+
+### 13.4 Variabel `.env` baru
+
+`AWS_BUCKET_BERITA=berita`, `SUPABASE_URL` (dipakai untuk alamat gambar berita), `DB_POOL_MAX=5`. Contoh lengkap ada di `.env.example` (tanpa nilai).
+
+Buat bucket `berita` di Supabase dan atur **publik** (isinya gambar berita yang memang tampil di website).
+
+### 13.5 Paket
+
+```bash
+npm install
+```
+
+`package.json` sudah memuat `sanitize-html`, `@types/sanitize-html`, serta skrip `postinstall` (`prisma generate`) dan `db:push`.
+
+### 13.6 Vercel (belum dikerjakan: tinggal langkah deploy)
+
+- `vercel.json` memilih wilayah `icn1` (Seoul) agar dekat dengan database.
+- Isi semua variabel `.env` di Settings, Environment Variables pada Vercel, termasuk `CORS_ORIGINS` berisi domain frontend.
+- Batas isi permintaan dan respons 4,5 MB berlaku, ekspor Excel dengan foto dibatasi 400 siswa.
+- Batas permintaan per menit (`ThrottlerModule`) masih di memori per instance. Perlindungan login memakai database sehingga tetap berlaku.
+
+### 13.7 Belum dikerjakan
+
+- Pengujian semua endpoint batch ini.
+- Panduan deploy Vercel langkah demi langkah.
+- Modul `.gitignore` sebenarnya: salin isi `.gitignore.contoh` ke `.gitignore`.

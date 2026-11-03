@@ -65,7 +65,7 @@ export class PendaftaranService {
   async getMyPendaftaran(userId: string) {
     const pilihJurusan = { select: { id: true, namaJurusan: true, biayaPendaftaran: true } };
 
-    const [biodata, berkas, pembayaran, catatan, pengaturan] = await Promise.all([
+    const [biodata, berkas, pembayaran, catatan, belumDibaca, pengaturan] = await Promise.all([
       this.prisma.biodataSiswa.findUnique({
         where: { userId },
         include: {
@@ -81,14 +81,15 @@ export class PendaftaranService {
         where: { userId },
         orderBy: { createdAt: 'desc' },
         take: 20,
-        select: { kategori: true, pesan: true, createdAt: true },
+        select: { id: true, kategori: true, pesan: true, dibacaPada: true, createdAt: true },
       }),
+      this.prisma.komentarPanitia.count({ where: { userId, dibacaPada: null } }),
       this.konfigurasi.ambilPengaturan(),
     ]);
 
     const files = await this.bangunDaftarFile(berkas);
     const avatarUrl = biodata?.avatarUrl
-      ? await this.storage.createSignedUrl(biodata.avatarUrl, 300, 'avatar')
+      ? await this.storage.createSignedUrl(biodata.avatarUrl, 3600, 'avatar')
       : null;
     const buktiUrl = pembayaran?.buktiUrl
       ? await this.storage.createSignedUrl(pembayaran.buktiUrl)
@@ -145,6 +146,7 @@ export class PendaftaranService {
           : null,
         instruksiRegistrasiUlang: daftarUlangTerbuka ? pengaturan.instruksiRegistrasiUlang : null,
         catatanPanitia: catatan,
+        notifikasiBelumDibaca: belumDibaca,
       },
     };
   }
@@ -234,7 +236,7 @@ export class PendaftaranService {
     return {
       status: 'success',
       message: 'Foto profil berhasil diunggah.',
-      data: { url: await this.storage.createSignedUrl(key, 300, 'avatar') },
+      data: { url: await this.storage.createSignedUrl(key, 3600, 'avatar') },
     };
   }
 

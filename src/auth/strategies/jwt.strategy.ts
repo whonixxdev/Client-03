@@ -22,7 +22,12 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     });
   }
 
-  async validate(payload: { sub: string; email: string; role: string }) {
+  async validate(payload: {
+    sub: string;
+    email: string;
+    role: string;
+    iat?: number;
+  }) {
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       select: {
@@ -32,13 +37,25 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         panitiaId: true,
         role: true,
         isVerified: true,
+        aktif: true,
+        passwordChangedAt: true,
       },
     });
 
-    if (!user || !user.isVerified) {
+    if (!user || !user.isVerified || !user.aktif) {
       throw new UnauthorizedException('Akses ditolak, token tidak valid.');
     }
 
-    return user;
+    if (
+      user.passwordChangedAt &&
+      payload.iat !== undefined &&
+      payload.iat < Math.floor(user.passwordChangedAt.getTime() / 1000)
+    ) {
+      throw new UnauthorizedException('Sesi berakhir. Silakan login kembali.');
+    }
+
+    const { passwordChangedAt, ...pengguna } = user;
+    void passwordChangedAt;
+    return pengguna;
   }
 }

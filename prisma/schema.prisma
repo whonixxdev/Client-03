@@ -49,6 +49,13 @@ model User {
   otpExpiredAt DateTime?
   otpPurpose   OtpPurpose?
   otpAttempts  Int         @default(0)
+  namaLengkap  String?
+  noHp         String?
+  avatarUrl    String?
+  aktif        Boolean     @default(true)
+  loginGagal   Int         @default(0)
+  terkunciSampai DateTime?
+  passwordChangedAt DateTime?
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
@@ -192,9 +199,13 @@ model KomentarPanitia {
   panitiaId String   
   pesan     String
   kategori  String   
+  batchId   String?
+  dibacaPada DateTime?
   
   createdAt DateTime @default(now())
 
+  @@index([userId, dibacaPada])
+  @@index([batchId])
   @@map("komentar_panitia")
 }
 
@@ -213,8 +224,10 @@ model Article {
   title      String
   slug       String          @unique
   content    String          @db.Text
+  excerpt    String?
   thumbnail  String?
   published  Boolean         @default(false)
+  publishedAt DateTime?
   authorId   String
   author     User            @relation(fields: [authorId], references: [id])
   categoryId String
@@ -222,5 +235,20 @@ model Article {
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
 
+  @@index([published, publishedAt])
   @@map("articles")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  aktorId   String
+  aksi      String
+  targetId  String?
+  detail    String?  @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([aktorId])
+  @@index([aksi])
+  @@index([createdAt])
+  @@map("audit_log")
 }

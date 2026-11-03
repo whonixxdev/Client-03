@@ -59,4 +59,9 @@ export class QueryPanitiaDto {
   @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
   diajukan?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value !== 'false' && value !== false)
+  @IsBoolean()
+  avatar?: boolean;
 }
