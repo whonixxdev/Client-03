@@ -1,13 +1,12 @@
-
-import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import {
   ExpressAdapter,
-  NestExpressApplication,
+  type NestExpressApplication,
 } from '@nestjs/platform-express';
 import express, { type Express } from 'express';
-import helmet from 'helmet';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { AppModule } from './app.module';
+import { configureApp } from './setup';
 
 let cachedApp: Promise<Express> | null = null;
 
@@ -19,35 +18,21 @@ async function bootstrap(): Promise<Express> {
     new ExpressAdapter(expressApp),
   );
 
-  app.set('trust proxy', 1);
-  app.use(helmet());
-
-  const origins = (process.env.CORS_ORIGINS ?? 'http://localhost:5173')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean);
-
-  app.enableCors({
-    origin: origins,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-  });
-
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
+  configureApp(app);
 
   await app.init();
 
   return expressApp;
 }
 
-export default async function handler(req: any, res: any) {
-  cachedApp ??= bootstrap();
+export default async function handler(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  cachedApp ??= bootstrap().catch((error: unknown) => {
+    cachedApp = null;
+    throw error;
+  });
 
   const expressApp = await cachedApp;
   expressApp(req, res);
