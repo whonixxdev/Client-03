@@ -11,7 +11,10 @@ async function bootstrap() {
 
   app.use(helmet());
 
-  const origins = (process.env.CORS_ORIGINS ?? 'http://localhost:5173')
+  const origins = (
+    process.env.CORS_ORIGINS ??
+    'http://localhost:5173,https://spmbsmktibaliglobalbadung.vercel.app'
+  )
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
